@@ -53,7 +53,7 @@ class Orbital_1s:
     def create_electron_template(name, base_radius, colour):
         # colour is in (r, g, b, a) format as a percentage from 0 to 1
 
-        bpy.ops.mesh.primitive_ico_sphere_add(radius=base_radius / 10, subdivisions=1)
+        bpy.ops.mesh.primitive_ico_sphere_add(radius=base_radius / 10, subdivisions=2)
 
         current_name = bpy.context.active_object.name
         sphere_object = bpy.data.objects[current_name]
@@ -106,7 +106,7 @@ class Orbital_1s:
 
         # Hollow sphere applied inwards
         sphere_object.modifiers.new(f"{name}_solidify", type="SOLIDIFY")
-        sphere_object.modifiers[f"{name}_solidify"].thickness = segment_1s_radius_step
+        sphere_object.modifiers[f"{name}_solidify"].thickness = segment_radius_step
 
         # Particle system setup
         pSystem = sphere_object.modifiers.new(
@@ -121,12 +121,12 @@ class Orbital_1s:
         pSettings.frame_end = 0
         pSettings.lifetime = 1000
 
-        pSettings.emit_from = "FACE"
+        pSettings.emit_from = "VOLUME"
         pSettings.distribution = "RAND"
 
         pSettings.use_modifier_stack = True
         pSettings.use_emit_random = True
-        pSettings.use_even_distribution = False
+        pSettings.use_even_distribution = True
 
         pSettings.physics_type = "NO"
 
@@ -143,13 +143,13 @@ class Orbital_1s:
         # Segment rotation around axis
         rotation_degree = random.randint(0, 360)
         x_driver = sphere_object.driver_add("rotation_euler", 0).driver
-        x_driver.expression = f"{rotation_degree} + frame / 15 / {outer_radius}"
+        x_driver.expression = f"{rotation_degree} + frame / 20 / {outer_radius}"
 
         y_driver = sphere_object.driver_add("rotation_euler", 1).driver
-        y_driver.expression = f"{rotation_degree} + frame / -15 / {outer_radius}"
+        y_driver.expression = f"{rotation_degree} + frame / -20 / {outer_radius}"
 
         z_driver = sphere_object.driver_add("rotation_euler", 2).driver
-        z_driver.expression = f"{rotation_degree} + frame / 15 / {outer_radius}"
+        z_driver.expression = f"{rotation_degree} + frame / 20 / {outer_radius}"
 
         return sphere_object
 
@@ -240,7 +240,7 @@ class Orbital_2s(Orbital_1s):
 
 
 # Items to retain from a new project
-PROTECTED_ITEMS = ["Camera", "Light", "Material"]
+PROTECTED_ITEMS = ["Camera", "Light.Lamp.1",'Light.Lamp.2', "Material", 'Background.Plane']
 
 
 for obj in bpy.data.objects:
@@ -259,17 +259,17 @@ bpy.ops.outliner.orphans_purge()
 atom = Orbital_2s(2, 1.26)
 
 
-segment_1s_radius_range = 10.0
-segment_1s_radius_step = 0.05
+segment_radius_range = 10.0
+segment_radius_step = 0.1
 
 # Index is not set to 0 because thickness is applied inward
-segment_radius_index = segment_1s_radius_step
+segment_radius_index = segment_radius_step * 2
 
 
-base_electron_count = 100
-while segment_radius_index <= segment_1s_radius_range:
+base_electron_count = 750
+while segment_radius_index <= segment_radius_range:
 
-    inner_radius = segment_radius_index - segment_1s_radius_step
+    inner_radius = segment_radius_index - segment_radius_step
     outer_radius = segment_radius_index
 
     percentage = atom.percent_at_1s_radius(inner_radius, outer_radius)
@@ -300,4 +300,4 @@ while segment_radius_index <= segment_1s_radius_range:
         atom.template_2s,
     )
 
-    segment_radius_index = round(segment_radius_index + segment_1s_radius_step, 2)
+    segment_radius_index = round(segment_radius_index + segment_radius_step, 2)
