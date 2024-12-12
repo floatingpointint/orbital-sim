@@ -20,6 +20,10 @@ PROTECTED_ITEMS = [
 ]
 
 
+start_frame = 0
+end_frame = 500
+
+
 class Orbital_1s:
     @staticmethod
     def rho_function(n, z, r):
@@ -133,7 +137,7 @@ class Orbital_1s:
 
         pSettings.frame_start = 0
         pSettings.frame_end = 0
-        pSettings.lifetime = 1000
+        pSettings.lifetime = end_frame
 
         pSettings.emit_from = "VOLUME"
         pSettings.distribution = "RAND"
@@ -154,17 +158,43 @@ class Orbital_1s:
         sphere_object.show_instancer_for_render = False
         sphere_object.show_instancer_for_viewport = False
 
-        # Segment rotation around axis
         rotation_degree = random.randint(0, 360)
-        x_driver = sphere_object.driver_add("rotation_euler", 0).driver
-        x_driver.expression = f"{rotation_degree} + frame / 20 / {outer_radius}"
 
-        y_driver = sphere_object.driver_add("rotation_euler", 1).driver
-        y_driver.expression = f"{rotation_degree} + frame / -20 / {outer_radius}"
+        start_frame_rotation = rotation_degree + start_frame / 25 / outer_radius
+        end_frame_rotation = rotation_degree + end_frame / 25 / outer_radius
 
-        z_driver = sphere_object.driver_add("rotation_euler", 2).driver
-        z_driver.expression = f"{rotation_degree} + frame / 20 / {outer_radius}"
+        # Segment rotation around axis at start frame
+        sphere_object.rotation_euler = (
+            start_frame_rotation,
+            -start_frame_rotation,
+            start_frame_rotation,
+        )
+        sphere_object.keyframe_insert(
+            data_path="rotation_euler",
+            frame=start_frame,
+        )
 
+        # Segment rotation around axis at end frame
+        sphere_object.rotation_euler = (
+            end_frame_rotation,
+            -end_frame_rotation,
+            end_frame_rotation,
+        )
+        sphere_object.keyframe_insert(data_path="rotation_euler", frame=end_frame)
+
+        # Grow into full size within 100 frames
+        sphere_object.scale = (0, 0, 0)
+        sphere_object.keyframe_insert(data_path="scale", frame=start_frame)
+
+        sphere_object.scale = (1, 1, 1)
+        sphere_object.keyframe_insert(data_path="scale", frame=start_frame + 100)
+
+        # Shrink into nothing size within 100 frames
+        sphere_object.scale = (1, 1, 1)
+        sphere_object.keyframe_insert(data_path="scale", frame=end_frame - 100)
+
+        sphere_object.scale = (0, 0, 0)
+        sphere_object.keyframe_insert(data_path="scale", frame=end_frame)
         return sphere_object
 
     def __init__(self, quantum_number, effective_charge):
@@ -174,8 +204,6 @@ class Orbital_1s:
         self.cumulative_1s_area, _ = integrate.quad(
             Orbital_1s.integrand, 0, np.inf, args=(self.quantum_number, self.charge)
         )
-
-        print(f"1s cum = {self.cumulative_1s_area}")
 
         self.template_1s = Orbital_1s.create_electron_template(
             "Orbital.1s.Template", 0.1, (0.8, 0.2, 0.2, 1)
@@ -190,15 +218,10 @@ class Orbital_1s:
             args=(self.quantum_number, self.charge),
         )
 
-        print(
-            f"{area_in_bounds[0]} / {self.cumulative_1s_area} = {area_in_bounds[0] / self.cumulative_1s_area}"
-        )
-
         return area_in_bounds[0] / self.cumulative_1s_area
 
 
 class Orbital_2s(Orbital_1s):
-
     @staticmethod
     def radial_wave_function(z, p):
         # R2s = (1/2√2) * (2-ρ) * Z^(3/2) * e^(-ρ/2)
@@ -227,8 +250,6 @@ class Orbital_2s(Orbital_1s):
             Orbital_2s.integrand, 0, np.inf, args=(self.quantum_number, self.charge)
         )
 
-        print(f"2s cum = {self.cumulative_2s_area}")
-
         self.template_2s = Orbital_2s.create_electron_template(
             "Orbital.2s.Template", 0.1, (0.2, 0.4, 0.8, 1)
         )
@@ -240,10 +261,6 @@ class Orbital_2s(Orbital_1s):
             inner_radius,
             outer_radius,
             args=(self.quantum_number, self.charge),
-        )
-
-        print(
-            f"{area_in_bounds[0]} / {self.cumulative_2s_area} = {area_in_bounds[0] / self.cumulative_2s_area}"
         )
 
         return area_in_bounds[0] / self.cumulative_2s_area
@@ -280,10 +297,8 @@ class Orbital_3s(Orbital_2s):
             Orbital_3s.integrand, 0, np.inf, args=(self.quantum_number, self.charge)
         )
 
-        print(f"3s cum = {self.cumulative_3s_area}")
-
         self.template_3s = Orbital_3s.create_electron_template(
-            "Orbital.3s.Template", 0.1, (0.2, 0.8, 0.2, 1)
+            "Orbital.3s.Template", 0.1, (0.6, 0.8, 0.2, 1)
         )
 
     def percent_at_3s_radius(self, inner_radius, outer_radius):
@@ -293,10 +308,6 @@ class Orbital_3s(Orbital_2s):
             inner_radius,
             outer_radius,
             args=(self.quantum_number, self.charge),
-        )
-
-        print(
-            f"{area_in_bounds[0]} / {self.cumulative_3s_area} = {area_in_bounds[0] / self.cumulative_3s_area}"
         )
 
         return area_in_bounds[0] / self.cumulative_3s_area
@@ -322,6 +333,18 @@ class S_Orbital_Atom:
         "mg": {"quantum_number": 3, "effective_charge": 2.25},
     }
 
+    quantum_number_radius = {
+        1: 8.0,
+        2: 10.0,
+        3: 15.0,
+    }
+
+    camera_lens_depth = {
+        8.0: 35,
+        10.0: 35,
+        15.0: 35,
+    }
+
     def __init__(
         self,
         name: str,
@@ -329,7 +352,7 @@ class S_Orbital_Atom:
 
         atom_name = ""
         for atom in S_Orbital_Atom.atom_options:
-            if name != atom[0] and name != atom[1]:
+            if name.lower() != atom[0].lower() and name.lower() != atom[1].lower():
                 continue
 
             atom_name = atom[0]
@@ -343,8 +366,13 @@ class S_Orbital_Atom:
         self.quantum_number = atom_data["quantum_number"]
         self.effective_charge = atom_data["effective_charge"]
 
+        self.segment_radius_range = S_Orbital_Atom.quantum_number_radius[
+            self.quantum_number
+        ]
+
         if atom_data["quantum_number"] == 1:
             self.atom_obj = Orbital_1s(self.quantum_number, self.effective_charge)
+
         elif atom_data["quantum_number"] == 2:
             self.atom_obj = Orbital_2s(self.quantum_number, self.effective_charge)
         elif atom_data["quantum_number"] == 3:
@@ -352,16 +380,18 @@ class S_Orbital_Atom:
 
     def create_simulation(self):
 
-        segment_radius_range = 10.0
         segment_radius_step = SEGMENT_THICKNESS
 
         # Index is not set to 0 because thickness is applied inward
         segment_radius_index = segment_radius_step * 2
 
         base_electron_count = 750
-        while segment_radius_index <= segment_radius_range:
+        while segment_radius_index <= self.segment_radius_range:
+
             inner_radius = segment_radius_index - segment_radius_step
             outer_radius = segment_radius_index
+
+            segment_radius_index = round(segment_radius_index + segment_radius_step, 2)
 
             is_lower_orbital = False
 
@@ -369,8 +399,11 @@ class S_Orbital_Atom:
                 is_lower_orbital = True
 
                 self.create_3s_orbital_segment(
-                    inner_radius, outer_radius, base_electron_count * 10
+                    inner_radius, outer_radius, base_electron_count * 20
                 )
+
+            if segment_radius_index > S_Orbital_Atom.quantum_number_radius[2]:
+                continue
 
             if is_lower_orbital or isinstance(self.atom_obj, Orbital_2s):
                 is_lower_orbital = True
@@ -379,20 +412,17 @@ class S_Orbital_Atom:
                     inner_radius, outer_radius, base_electron_count * 10
                 )
 
+            if segment_radius_index > S_Orbital_Atom.quantum_number_radius[1]:
+                continue
+
             if is_lower_orbital or isinstance(self.atom_obj, Orbital_1s):
                 self.create_1s_orbital_segment(
                     inner_radius, outer_radius, base_electron_count
                 )
 
-            segment_radius_index = round(segment_radius_index + segment_radius_step, 2)
-
     def create_1s_orbital_segment(self, inner_radius, outer_radius, electron_count):
         percentage = self.atom_obj.percent_at_1s_radius(inner_radius, outer_radius)
         electron_count = round(percentage * electron_count)
-
-        print(
-            f"1s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}"
-        )
 
         Orbital_1s.create_orbital_segment(
             f"Electron.1s.{inner_radius}",
@@ -405,10 +435,6 @@ class S_Orbital_Atom:
         percentage = self.atom_obj.percent_at_2s_radius(inner_radius, outer_radius)
         electron_count = round(percentage * electron_count)
 
-        print(
-            f"2s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}\n\n"
-        )
-
         Orbital_2s.create_orbital_segment(
             f"Electron.2s.{inner_radius}",
             outer_radius,
@@ -420,15 +446,11 @@ class S_Orbital_Atom:
         percentage = self.atom_obj.percent_at_3s_radius(inner_radius, outer_radius)
         electron_count = round(percentage * electron_count)
 
-        print(
-            f"3s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}\n\n"
-        )
-
         Orbital_3s.create_orbital_segment(
             f"Electron.3s.{inner_radius}",
             outer_radius,
             electron_count,
-            self.atom_obj.template_2s,
+            self.atom_obj.template_3s,
         )
 
 
@@ -443,7 +465,44 @@ for material in bpy.data.materials:
 
 bpy.ops.outliner.orphans_purge()
 
+atom = S_Orbital_Atom("na")
 
-# hydrogenAtom = Orbital_1s(1, 1)
-helium = S_Orbital_Atom("na")
-helium.create_simulation()
+
+sphere_radius = atom.segment_radius_range
+
+
+camera_angle_extended_pitch = 75
+camera_angle_origin = 90 - camera_angle_extended_pitch
+camera_angle__origin_rad = math.radians(camera_angle_origin)
+
+
+# Trig functions of sin = o/h and cos = a/h
+camera_opposite_height = sphere_radius
+camera_hypotenuse_radius = camera_opposite_height / math.sin(camera_angle__origin_rad)
+camera_adjacent_length = camera_hypotenuse_radius * math.cos(camera_angle__origin_rad)
+
+
+# The triangle calculated above is aligned to the X-Z / Y-Z plane. Looking
+# at the X-Y plane, the adjacent value is the radius. Since the camera is
+# angled at 45 degrees in a square, it can be split into two 45-45 triangles
+# where the hypotenuse was the previously adjacent value. To calculate the
+# adjacent or opposite value for the X-Z plane (both are the same), just divide
+# the X-Y plane hypotenuse by the square root of 2 (45-45 properties)
+
+camera_position = (
+    camera_adjacent_length / 2 ** (1 / 2),
+    -camera_adjacent_length / 2 ** (1 / 2),
+    camera_opposite_height,
+)
+
+# Camera rotation to look down at 68 degrees
+camera_rotation = (math.radians(camera_angle_extended_pitch), 0, math.radians(45))
+
+
+camera = bpy.data.objects.get("Camera")
+camera.data.lens = atom.camera_lens_depth[sphere_radius]
+camera.location = camera_position
+camera.rotation_euler = camera_rotation
+
+
+atom.create_simulation()
