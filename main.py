@@ -6,6 +6,20 @@ import scipy.integrate as integrate
 import numpy as np
 
 
+# Reimon area width
+SEGMENT_THICKNESS = 0.1
+
+
+# Items to retain from a new project
+PROTECTED_ITEMS = [
+    "Camera",
+    "Light.Lamp.1",
+    "Light.Lamp.2",
+    "Material",
+    "Background.Plane",
+]
+
+
 class Orbital_1s:
     @staticmethod
     def rho_function(n, z, r):
@@ -106,7 +120,7 @@ class Orbital_1s:
 
         # Hollow sphere applied inwards
         sphere_object.modifiers.new(f"{name}_solidify", type="SOLIDIFY")
-        sphere_object.modifiers[f"{name}_solidify"].thickness = segment_radius_step
+        sphere_object.modifiers[f"{name}_solidify"].thickness = SEGMENT_THICKNESS
 
         # Particle system setup
         pSystem = sphere_object.modifiers.new(
@@ -184,15 +198,11 @@ class Orbital_1s:
 
 
 class Orbital_2s(Orbital_1s):
-    @staticmethod
-    def rho_function(n, z, r):
-        # ρ = 2 * Zr/n
-        return 2 * z * r / n
 
     @staticmethod
     def radial_wave_function(z, p):
         # R2s = (1/2√2) * (2-ρ) * Z^(3/2) * e^(-ρ/2)
-        return 1 / (2 * math.sqrt(2)) * (2 - p) * z ** (3 / 2) * math.exp(-p / 2)
+        return 1 / 2 * math.sqrt(2) * (2 - p) * z ** (3 / 2) * math.exp(-p / 2)
 
     @staticmethod
     def integrand(x, n, z):
@@ -239,8 +249,187 @@ class Orbital_2s(Orbital_1s):
         return area_in_bounds[0] / self.cumulative_2s_area
 
 
-# Items to retain from a new project
-PROTECTED_ITEMS = ["Camera", "Light.Lamp.1",'Light.Lamp.2', "Material", 'Background.Plane']
+class Orbital_3s(Orbital_2s):
+    @staticmethod
+    def radial_wave_function(z, p):
+        # R3s = (1/9√3) * (6-6ρ+ρ^2) * Z^(3/2) * e^(-ρ/2)
+        return (
+            1 / 9 * 3 ** (1 / 3) * (6 - 6 * p + p**2) * z ** (3 / 2) * math.exp(-p / 2)
+        )
+
+    @staticmethod
+    def integrand(x, n, z):
+        p = Orbital_3s.rho_function(n, z, x)
+
+        radial_wave = Orbital_3s.radial_wave_function(z, p)
+        angular_wave = Orbital_3s.angular_wave_function()
+        wave_function = Orbital_3s.superposition_wave_function(
+            radial_wave, angular_wave
+        )
+
+        return Orbital_3s.radial_distribution_function(x, wave_function)
+
+    def __init__(self, quantum_number, effective_charge):
+
+        Orbital_2s.__init__(self, quantum_number, effective_charge)
+
+        self.quantum_number = quantum_number
+        self.charge = effective_charge
+
+        self.cumulative_3s_area, _ = integrate.quad(
+            Orbital_3s.integrand, 0, np.inf, args=(self.quantum_number, self.charge)
+        )
+
+        print(f"3s cum = {self.cumulative_3s_area}")
+
+        self.template_3s = Orbital_3s.create_electron_template(
+            "Orbital.3s.Template", 0.1, (0.2, 0.8, 0.2, 1)
+        )
+
+    def percent_at_3s_radius(self, inner_radius, outer_radius):
+
+        area_in_bounds = integrate.quad(
+            Orbital_3s.integrand,
+            inner_radius,
+            outer_radius,
+            args=(self.quantum_number, self.charge),
+        )
+
+        print(
+            f"{area_in_bounds[0]} / {self.cumulative_3s_area} = {area_in_bounds[0] / self.cumulative_3s_area}"
+        )
+
+        return area_in_bounds[0] / self.cumulative_3s_area
+
+
+class S_Orbital_Atom:
+
+    atom_options = (
+        ("h", "hydrogen"),
+        ("he", "helium"),
+        ("li", "lithium"),
+        ("be", "beryllium"),
+        ("na", "sodium"),
+        ("mg", "magnesium"),
+    )
+
+    atom_base_data = {
+        "h": {"quantum_number": 1, "effective_charge": 1.0},
+        "he": {"quantum_number": 1, "effective_charge": 1.34},
+        "li": {"quantum_number": 2, "effective_charge": 1.26},
+        "be": {"quantum_number": 2, "effective_charge": 1.58},
+        "na": {"quantum_number": 3, "effective_charge": 1.64},
+        "mg": {"quantum_number": 3, "effective_charge": 2.25},
+    }
+
+    def __init__(
+        self,
+        name: str,
+    ):
+
+        atom_name = ""
+        for atom in S_Orbital_Atom.atom_options:
+            if name != atom[0] and name != atom[1]:
+                continue
+
+            atom_name = atom[0]
+            break
+
+        if atom_name == "":
+            raise Exception("Invalid atom name")
+
+        atom_data = S_Orbital_Atom.atom_base_data[atom_name]
+
+        self.quantum_number = atom_data["quantum_number"]
+        self.effective_charge = atom_data["effective_charge"]
+
+        if atom_data["quantum_number"] == 1:
+            self.atom_obj = Orbital_1s(self.quantum_number, self.effective_charge)
+        elif atom_data["quantum_number"] == 2:
+            self.atom_obj = Orbital_2s(self.quantum_number, self.effective_charge)
+        elif atom_data["quantum_number"] == 3:
+            self.atom_obj = Orbital_3s(self.quantum_number, self.effective_charge)
+
+    def create_simulation(self):
+
+        segment_radius_range = 10.0
+        segment_radius_step = SEGMENT_THICKNESS
+
+        # Index is not set to 0 because thickness is applied inward
+        segment_radius_index = segment_radius_step * 2
+
+        base_electron_count = 750
+        while segment_radius_index <= segment_radius_range:
+            inner_radius = segment_radius_index - segment_radius_step
+            outer_radius = segment_radius_index
+
+            is_lower_orbital = False
+
+            if isinstance(self.atom_obj, Orbital_3s):
+                is_lower_orbital = True
+
+                self.create_3s_orbital_segment(
+                    inner_radius, outer_radius, base_electron_count * 10
+                )
+
+            if is_lower_orbital or isinstance(self.atom_obj, Orbital_2s):
+                is_lower_orbital = True
+
+                self.create_2s_orbital_segment(
+                    inner_radius, outer_radius, base_electron_count * 10
+                )
+
+            if is_lower_orbital or isinstance(self.atom_obj, Orbital_1s):
+                self.create_1s_orbital_segment(
+                    inner_radius, outer_radius, base_electron_count
+                )
+
+            segment_radius_index = round(segment_radius_index + segment_radius_step, 2)
+
+    def create_1s_orbital_segment(self, inner_radius, outer_radius, electron_count):
+        percentage = self.atom_obj.percent_at_1s_radius(inner_radius, outer_radius)
+        electron_count = round(percentage * electron_count)
+
+        print(
+            f"1s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}"
+        )
+
+        Orbital_1s.create_orbital_segment(
+            f"Electron.1s.{inner_radius}",
+            outer_radius,
+            electron_count,
+            self.atom_obj.template_1s,
+        )
+
+    def create_2s_orbital_segment(self, inner_radius, outer_radius, electron_count):
+        percentage = self.atom_obj.percent_at_2s_radius(inner_radius, outer_radius)
+        electron_count = round(percentage * electron_count)
+
+        print(
+            f"2s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}\n\n"
+        )
+
+        Orbital_2s.create_orbital_segment(
+            f"Electron.2s.{inner_radius}",
+            outer_radius,
+            electron_count,
+            self.atom_obj.template_2s,
+        )
+
+    def create_3s_orbital_segment(self, inner_radius, outer_radius, electron_count):
+        percentage = self.atom_obj.percent_at_3s_radius(inner_radius, outer_radius)
+        electron_count = round(percentage * electron_count)
+
+        print(
+            f"3s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}\n\n"
+        )
+
+        Orbital_3s.create_orbital_segment(
+            f"Electron.3s.{inner_radius}",
+            outer_radius,
+            electron_count,
+            self.atom_obj.template_2s,
+        )
 
 
 for obj in bpy.data.objects:
@@ -256,48 +445,5 @@ bpy.ops.outliner.orphans_purge()
 
 
 # hydrogenAtom = Orbital_1s(1, 1)
-atom = Orbital_2s(2, 1.26)
-
-
-segment_radius_range = 10.0
-segment_radius_step = 0.1
-
-# Index is not set to 0 because thickness is applied inward
-segment_radius_index = segment_radius_step * 2
-
-
-base_electron_count = 750
-while segment_radius_index <= segment_radius_range:
-
-    inner_radius = segment_radius_index - segment_radius_step
-    outer_radius = segment_radius_index
-
-    percentage = atom.percent_at_1s_radius(inner_radius, outer_radius)
-    electron_count = round(percentage * base_electron_count)
-
-    print(
-        f"1s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}"
-    )
-
-    Orbital_1s.create_orbital_segment(
-        f"Electron.1s.{segment_radius_index}",
-        outer_radius,
-        electron_count,
-        atom.template_1s,
-    )
-
-    percentage = atom.percent_at_2s_radius(inner_radius, outer_radius)
-    electron_count = round(percentage * base_electron_count * 10)
-
-    print(
-        f"2s inner_radius = {inner_radius} ; percentage = {percentage} ; max = {electron_count}\n\n"
-    )
-
-    Orbital_2s.create_orbital_segment(
-        f"Electron.2s.{segment_radius_index}",
-        outer_radius,
-        electron_count,
-        atom.template_2s,
-    )
-
-    segment_radius_index = round(segment_radius_index + segment_radius_step, 2)
+helium = S_Orbital_Atom("na")
+helium.create_simulation()
